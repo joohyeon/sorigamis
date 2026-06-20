@@ -29,7 +29,7 @@ The app is a thin client: it records locally, uploads audio to Google Drive, and
 
 ```
 ┌─────────────────────────────────────────────┐
-│              Sorigami (Flutter)              │
+│              Sorigami (Flutter)             │
 │  UI Layer     Screens + Widgets (Riverpod)  │
 │  Domain       Use cases, entities           │
 │  Data         Repos, local DB, API clients  │
