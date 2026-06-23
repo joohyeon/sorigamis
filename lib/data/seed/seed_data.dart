@@ -5,6 +5,12 @@ import '../db/database.dart';
 const _uuid = Uuid();
 
 /// Inserts the 5 default Modes and their Skills on first run only.
+///
+/// All inserts run inside a single transaction so seeding is atomic: if any
+/// insert fails (or the app is killed mid-seed), nothing is committed and the
+/// next launch re-seeds cleanly. Without this, a partial seed would leave a
+/// Mode row present — tripping the `isNotEmpty` guard — with skills missing
+/// and no way to recover short of deleting the database.
 Future<void> seedIfEmpty(AppDatabase db) async {
   final existing = await db.modeDao.watchAllModes().first;
   if (existing.isNotEmpty) return;
@@ -40,23 +46,26 @@ Future<void> seedIfEmpty(AppDatabase db) async {
     }
   }
 
-  final summary = await addSkill('Summary', 'summary');
-  final actionItems = await addSkill('Action Items', 'tasks');
-  final meetingSummary = await addSkill('Meeting Summary', 'summary');
-  final decisionLog =
-      await addSkill('Decision Log', 'custom', focusArea: 'decisions made');
-  final callSummary = await addSkill('Call Summary', 'summary');
-  final followUps =
-      await addSkill('Follow-ups', 'tasks', focusArea: 'commitments');
-  final standupDigest = await addSkill('Standup Digest', 'summary');
-  final blockers = await addSkill('Blockers', 'tasks', focusArea: 'blockers');
-  final interviewSummary = await addSkill('Interview Summary', 'summary');
-  final keyQuotes =
-      await addSkill('Key Quotes', 'custom', focusArea: 'key quotes');
+  await db.transaction(() async {
+    final summary = await addSkill('Summary', 'summary');
+    final actionItems = await addSkill('Action Items', 'tasks');
+    final meetingSummary = await addSkill('Meeting Summary', 'summary');
+    final decisionLog =
+        await addSkill('Decision Log', 'custom', focusArea: 'decisions made');
+    final callSummary = await addSkill('Call Summary', 'summary');
+    final followUps =
+        await addSkill('Follow-ups', 'tasks', focusArea: 'commitments');
+    final standupDigest = await addSkill('Standup Digest', 'summary');
+    final blockers = await addSkill('Blockers', 'tasks', focusArea: 'blockers');
+    final interviewSummary = await addSkill('Interview Summary', 'summary');
+    final keyQuotes =
+        await addSkill('Key Quotes', 'custom', focusArea: 'key quotes');
 
-  await addMode('General', '📝', [summary, actionItems], isDefault: true);
-  await addMode('Team Meeting', '🗓', [meetingSummary, actionItems, decisionLog]);
-  await addMode('Sales Call', '📞', [callSummary, followUps]);
-  await addMode('Standup', '⚡', [standupDigest, blockers]);
-  await addMode('Interview', '🎙', [interviewSummary, keyQuotes]);
+    await addMode('General', '📝', [summary, actionItems], isDefault: true);
+    await addMode(
+        'Team Meeting', '🗓', [meetingSummary, actionItems, decisionLog]);
+    await addMode('Sales Call', '📞', [callSummary, followUps]);
+    await addMode('Standup', '⚡', [standupDigest, blockers]);
+    await addMode('Interview', '🎙', [interviewSummary, keyQuotes]);
+  });
 }

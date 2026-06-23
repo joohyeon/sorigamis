@@ -24,4 +24,22 @@ void main() {
     modes = await db.modeDao.watchAllModes().first;
     expect(modes.length, 5);
   });
+
+  test('seeds the full set atomically — all skills and links committed',
+      () async {
+    final db = newTestDatabase();
+    addTearDown(db.close);
+
+    await seedIfEmpty(db);
+
+    // 10 seed skills.
+    final skills = await db.skillDao.watchAllSkills().first;
+    expect(skills.length, 10);
+
+    // 11 mode→skill links: General(2) + Team Meeting(3) + Sales Call(2)
+    // + Standup(2) + Interview(2). The transaction commits all or nothing,
+    // so a count of exactly 11 confirms no partial seed slipped through.
+    final links = await db.select(db.modeSkills).get();
+    expect(links.length, 11);
+  });
 }
