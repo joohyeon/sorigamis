@@ -125,10 +125,10 @@ fly secrets set \
   --app sorigamis
 ```
 
-Create a GitHub repository secret named `FLY_API_TOKEN` with a deploy token:
+Create a GitHub repository secret named `FLY_API_TOKEN` with an org deploy token, not an app-scoped deploy token. PR preview apps create new Fly apps such as `sorigamis-pr-6`, so the token must be allowed to manage apps in the target organization.
 
 ```bash
-fly tokens create deploy -x 999999h
+fly tokens create org --org personal --name sorigamis-github-actions -x 8760h
 ```
 
 ### 6.2 Production deploys

@@ -29,6 +29,7 @@ def test_fly_preview_config_is_distinct_from_production() -> None:
 def test_github_actions_deploy_production_and_preview_apps() -> None:
     production_workflow = (ROOT / ".github" / "workflows" / "fly-production.yml").read_text()
     preview_workflow = (ROOT / ".github" / "workflows" / "fly-preview.yml").read_text()
+    runbook = (ROOT / "RUNBOOK.md").read_text()
 
     assert "branches:" in production_workflow
     assert "- release" in production_workflow
@@ -42,3 +43,6 @@ def test_github_actions_deploy_production_and_preview_apps() -> None:
     assert "path: pipeline" in preview_workflow
     assert "config: fly.preview.toml" in preview_workflow
     assert "name: sorigamis-pr-${{ github.event.number }}" in preview_workflow
+
+    assert "fly tokens create org" in runbook
+    assert "not an app-scoped deploy token" in runbook
