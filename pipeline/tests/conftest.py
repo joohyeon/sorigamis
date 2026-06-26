@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 @pytest.fixture
 def mock_supabase():
@@ -8,6 +8,8 @@ def mock_supabase():
 
 @pytest.fixture
 def client(mock_supabase):
-    with patch("supabase_client.get_supabase", return_value=mock_supabase):
-        from main import app
-        return TestClient(app)
+    from main import app
+    from supabase_client import get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_supabase
+    yield TestClient(app)
+    app.dependency_overrides.clear()
