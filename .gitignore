@@ -81,5 +81,15 @@ coverage/
 
 # docs 
 docs/research/
+
+# Local Superpowers/SDD notes
+.superpowers/
+
+# Local agent instructions
+AGENTS.md
+agents.md
+CLAUDE.md
+claude.md
+
 # Flutter DevTools (generated)
 devtools_options.yaml
