@@ -107,7 +107,7 @@ Commit the regenerated `*.g.dart` files alongside your change.
 
 ## 6. Fly.io pipeline deployment
 
-The FastAPI pipeline in `pipeline/` deploys to Fly.io. Production uses `pipeline/fly.toml` and PR previews use `pipeline/fly.preview.toml`.
+The FastAPI pipeline in `pipeline/` deploys to Fly.io. Production uses `pipeline/fly.toml`.
 
 ### 6.1 One-time production app setup
 
@@ -125,15 +125,15 @@ fly secrets set \
   --app sorigamis
 ```
 
-Create a GitHub repository secret named `FLY_API_TOKEN` with an org deploy token, not an app-scoped deploy token. PR preview apps create new Fly apps such as `sorigamis-pr-6`, so the token must be allowed to manage apps in the target organization.
+Create a GitHub repository secret named `FLY_API_TOKEN` with a deploy token for the `sorigamis` app.
 
 ```bash
-fly tokens create org --org personal --name sorigamis-github-actions -x 8760h
+fly tokens create deploy --app sorigamis -x 8760h
 ```
 
 ### 6.2 Production deploys
 
-Production deploys run automatically on pushes to `release` when files under `pipeline/` change. Keep `main` and feature branches on PR preview apps; merge or promote to `release` only when you want to deploy production. You can also trigger the `Fly Production` workflow manually from GitHub Actions.
+Production deploys run automatically on pushes to `release` when files under `pipeline/` change. Merge or promote to `release` only when you want to deploy production. You can also trigger the `Fly Production` workflow manually from GitHub Actions.
 
 Manual deploy from this machine:
 
@@ -141,26 +141,6 @@ Manual deploy from this machine:
 cd pipeline
 fly deploy --config fly.toml --remote-only
 ```
-
-### 6.3 PR preview apps
-
-Pull requests that change `pipeline/` create a preview Fly app named `sorigamis-pr-<number>` using `pipeline/fly.preview.toml`, except PRs targeting `release`. Preview machines can scale to zero when idle. The review app workflow destroys the preview app when the PR is closed.
-
-Preview apps need the same runtime secrets as production. If a preview app starts but pipeline calls fail with missing environment variables, copy the production secrets to the generated preview app or set dedicated preview values:
-
-```bash
-fly secrets set \
-  SUPABASE_URL=<preview-value> \
-  SUPABASE_SERVICE_ROLE_KEY=<preview-value> \
-  GOOGLE_SERVICE_ACCOUNT_JSON='<json>' \
-  FCM_SERVER_KEY=<preview-value> \
-  MODAL_TOKEN_ID=<preview-value> \
-  MODAL_TOKEN_SECRET=<preview-value> \
-  GITHUB_TOKEN=<preview-value> \
-  --app sorigamis-pr-<number>
-```
-
----
 
 ## 7. Android setup (not yet verified)
 
