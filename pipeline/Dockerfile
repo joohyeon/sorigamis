@@ -2,22 +2,24 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Install system deps needed to build some Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 # Install uv
 RUN pip install --no-cache-dir uv
+
+# Install hermes-agent CLI from GitHub (PyPI only has <=0.15.2; we need 0.17.0+)
+# Pin to a specific commit for reproducible builds. Bump this when upgrading Hermes.
+RUN pip install --no-cache-dir \
+    "git+https://github.com/NousResearch/hermes-agent.git@d40b5735a"
 
 # Copy dependency files first for layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install deps (frozen, no dev, no project install yet)
+# Install project deps (frozen, no dev, no project install yet)
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy source
 COPY . .
-
-# NOTE: hermes CLI must be installed separately.
-# On Fly.io, install via fly.toml [build.args] or a custom base image.
-# For local development: pip install hermes-ai (or your hermes package name)
-# Uncomment the line below once the hermes package name is confirmed:
-# RUN pip install hermes-ai
 
 CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
