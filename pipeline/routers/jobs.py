@@ -43,7 +43,12 @@ def create_job(body: CreateJobRequest, db=Depends(get_supabase)):
             raise HTTPException(status_code=500, detail="Failed to resolve skills")
 
     skills = [
-        {"skill_name": s["name"], "ai_prompt": s["ai_prompt"], "integration_actions": s.get("integration_actions", [])}
+        {
+            "skill_name": s["name"],
+            "ai_prompt": s["ai_prompt"],
+            "integration_actions": s.get("integration_actions", []),
+            "require_review": bool(s.get("require_review", False)),
+        }
         for s in skills_data
     ]
 
