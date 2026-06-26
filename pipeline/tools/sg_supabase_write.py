@@ -28,10 +28,24 @@ def update_job_status(
         raise RuntimeError(f"Supabase write failed (update_job_status {job_id}): {exc}") from exc
 
 
+def _normalize_utterance(row: dict) -> dict:
+    """Map pipeline utterance fields to the database schema.
+
+    The orchestrator instructions and local workers emit `start`/`end`, but the
+    database table stores `start_sec`/`end_sec`.
+    """
+    normalized = dict(row)
+    if "start_sec" not in normalized and "start" in normalized:
+        normalized["start_sec"] = normalized.pop("start")
+    if "end_sec" not in normalized and "end" in normalized:
+        normalized["end_sec"] = normalized.pop("end")
+    return normalized
+
+
 def write_utterances(job_id: str, utterances: list[dict]) -> None:
     try:
         client = _client()
-        rows = [{"job_id": job_id, **u} for u in utterances]
+        rows = [{"job_id": job_id, **_normalize_utterance(u)} for u in utterances]
         client.table("sg_utterances").insert(rows).execute()
     except Exception as exc:
         raise RuntimeError(f"Supabase write failed (write_utterances {job_id}): {exc}") from exc

@@ -140,6 +140,13 @@ def test_update_job_status(mock_supabase_client):
     mock_supabase_client.table.return_value.update.return_value.eq.assert_called_with("id", "job-123")
 
 
+def test_write_utterances_translates_start_end_fields(mock_supabase_client):
+    from tools.sg_supabase_write import write_utterances
+    write_utterances("job-123", [{"start": 1.25, "end": 2.5, "text": "hello"}])
+    insert_arg = mock_supabase_client.table.return_value.insert.call_args[0][0]
+    assert insert_arg == [{"job_id": "job-123", "start_sec": 1.25, "end_sec": 2.5, "text": "hello"}]
+
+
 def test_send_fcm_notification():
     from tools.sg_notify_fcm import send_fcm
     with patch("tools.sg_notify_fcm.service_account.Credentials.from_service_account_info") as mock_creds, \
