@@ -88,3 +88,28 @@ def test_send_fcm_notification():
         mock_post.assert_called_once()
         call_args = mock_post.call_args
         assert "fcm.googleapis.com/v1" in call_args[0][0]
+
+
+def test_post_slack():
+    from unittest.mock import patch
+    import httpx
+    with patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=200, json=lambda: {"ok": True})
+        from tools.sg_slack_post import post_slack
+        post_slack("#meetings", "Hello", "xoxb-token")
+    mock_post.assert_called_once()
+    call_kwargs = mock_post.call_args
+    assert "slack.com" in str(call_kwargs)
+
+
+def test_call_webhook():
+    from unittest.mock import patch, MagicMock
+    with patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=200)
+        from tools.sg_webhook_call import call_webhook
+        call_webhook("https://example.com/hook", {"key": "value"})
+    mock_post.assert_called_once_with(
+        "https://example.com/hook",
+        json={"key": "value"},
+        timeout=15,
+    )
