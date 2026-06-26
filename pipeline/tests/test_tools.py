@@ -34,3 +34,29 @@ def test_diarize_returns_speaker_segments():
     assert len(result) == 1
     assert result[0]["speaker"] == "A"
     assert result[0]["start"] == 0.0
+
+
+def test_download_audio_calls_drive_api():
+    import json
+    from unittest.mock import patch, MagicMock
+    mock_service = MagicMock()
+    mock_service.files.return_value.get_media.return_value.execute.return_value = b"audio_bytes"
+
+    with patch("tools.sg_drive_download.build", return_value=mock_service), \
+         patch("builtins.open", MagicMock()), \
+         patch("tools.sg_drive_download.Credentials") as mock_creds, \
+         patch("tools.sg_drive_download.MediaIoBaseDownload") as mock_dl:
+        mock_creds.from_service_account_info.return_value = MagicMock()
+        mock_dl.return_value.next_chunk.return_value = (MagicMock(progress=lambda: 1.0), True)
+        from tools.sg_drive_download import download_audio
+        result = download_audio("file123", "/tmp/audio.m4a", json.dumps({"type": "service_account"}))
+    assert result == "/tmp/audio.m4a"
+
+
+def test_update_job_status():
+    from unittest.mock import patch, MagicMock
+    mock_client = MagicMock()
+    with patch("tools.sg_supabase_write.create_client", return_value=mock_client):
+        from tools.sg_supabase_write import update_job_status
+        update_job_status("job-1", "analyzing", "https://x.supabase.co", "key")
+    mock_client.table.assert_called_with("sg_jobs")
