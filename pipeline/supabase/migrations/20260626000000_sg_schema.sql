@@ -49,7 +49,7 @@ create table sg_utterances (
   start_sec float not null,
   end_sec float not null,
   text text not null,
-  speaker_id uuid references sg_speakers(id),
+  speaker_id uuid references sg_speakers(id) on delete set null,
   confirmed_by_user boolean not null default false,
   avg_logprob float,
   created_at timestamptz not null default now()
@@ -68,7 +68,7 @@ create table sg_transcript_raw (
 create table sg_skill_results (
   id uuid primary key default gen_random_uuid(),
   job_id uuid not null references sg_jobs(id) on delete cascade,
-  skill_id uuid references sg_skills(id),
+  skill_id uuid references sg_skills(id) on delete set null,
   skill_name text not null,
   output_json jsonb,
   output_markdown text,
@@ -80,7 +80,7 @@ create table sg_skill_results (
 create table sg_action_logs (
   id uuid primary key default gen_random_uuid(),
   job_id uuid not null references sg_jobs(id) on delete cascade,
-  skill_id uuid references sg_skills(id),
+  skill_id uuid references sg_skills(id) on delete set null,
   action_type text not null,
   destination text,
   payload_json jsonb,
