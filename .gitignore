@@ -63,6 +63,13 @@ GoogleService-Info.plist
 .vscode/
 *.iml
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+pipeline/.venv/
+
 # Coverage
 coverage/
 
