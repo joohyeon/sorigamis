@@ -25,6 +25,10 @@ class SkillDao extends DatabaseAccessor<AppDatabase> with _$SkillDaoMixin {
       (select(skills)..orderBy([(s) => OrderingTerm(expression: s.name)]))
           .watch();
 
+  Future<List<Skill>> getAllSkills() =>
+      (select(skills)..orderBy([(s) => OrderingTerm(expression: s.name)]))
+          .get();
+
   Future<void> updateRequireReview(String id, bool value) async {
     await (update(skills)..where((s) => s.id.equals(id)))
         .write(SkillsCompanion(requireReview: Value(value)));
