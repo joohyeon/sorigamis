@@ -17,13 +17,18 @@ def _monitor(proc: subprocess.Popen, job_id: str, log_file) -> None:
         proc.wait()
         log_file.close()
         if proc.returncode == 0:
-            # Only mark complete if not already in a terminal state
+            # Only auto-complete when the job is in the "running" state. If Hermes exits 0
+            # while the job is in an intermediate state (awaiting_plan_confirmation,
+            # awaiting_checkpoint), it exited before finishing — treat that as failure.
             from supabase_client import get_supabase
             client = get_supabase()
             row = client.table("sg_jobs").select("status").eq("id", job_id).maybe_single().execute()
             current_status = (row.data or {}).get("status", "")
-            if current_status not in ("complete", "failed"):
+            if current_status == "running":
                 update_job_status(job_id, "complete")
+            elif current_status not in ("complete", "failed"):
+                # Unexpected exit 0 from a non-running state
+                update_job_status(job_id, "failed", {"error": f"hermes exited 0 from unexpected state: {current_status}"})
         else:
             update_job_status(job_id, "failed", {"error": f"hermes exited {proc.returncode}"})
     except Exception as exc:

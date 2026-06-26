@@ -52,7 +52,9 @@ if _modal_available:
         segments = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
             if speaker not in speaker_map:
-                speaker_map[speaker] = _SPEAKER_LABELS[len(speaker_map)]
+                idx = len(speaker_map)
+                # Fall back to "SPK_N" when more than 26 speakers are detected
+                speaker_map[speaker] = _SPEAKER_LABELS[idx] if idx < len(_SPEAKER_LABELS) else f"SPK_{idx}"
             segments.append({
                 "start": round(turn.start, 3),
                 "end": round(turn.end, 3),
@@ -72,7 +74,9 @@ else:
         segments = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
             if speaker not in speaker_map:
-                speaker_map[speaker] = _SPEAKER_LABELS[len(speaker_map)]
+                idx = len(speaker_map)
+                # Fall back to "SPK_N" when more than 26 speakers are detected
+                speaker_map[speaker] = _SPEAKER_LABELS[idx] if idx < len(_SPEAKER_LABELS) else f"SPK_{idx}"
             segments.append({
                 "start": round(turn.start, 3),
                 "end": round(turn.end, 3),

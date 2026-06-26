@@ -17,16 +17,16 @@ def _validate_uuid(val: str | None, param: str) -> None:
 
 
 @router.get("")
-def list_modes(user_id: str | None = None, db=Depends(get_supabase)):
+def list_modes(user_id: str, db=Depends(get_supabase)):
+    """List modes for a specific user. user_id is required to prevent cross-user data exposure."""
     _validate_uuid(user_id, "user_id")
-    if user_id:
-        result = db.table("sg_modes").select("*").eq("user_id", user_id).execute()
-    else:
-        result = db.table("sg_modes").select("*").execute()
+    result = db.table("sg_modes").select("*").eq("user_id", user_id).execute()
     return result.data
 
 @router.post("", status_code=201)
-def create_mode(body: CreateModeRequest, user_id: str | None = None, db=Depends(get_supabase)):
+def create_mode(body: CreateModeRequest, user_id: str, db=Depends(get_supabase)):
+    """Create a mode. user_id is required (sg_modes.user_id is NOT NULL)."""
+    _validate_uuid(user_id, "user_id")
     result = db.table("sg_modes").insert({
         "user_id": user_id,
         "name": body.name,

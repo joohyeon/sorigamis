@@ -62,6 +62,11 @@ if _modal_available:
 
 else:
     def transcribe(wav_path: str, language: str = "ko") -> list[dict]:  # type: ignore[misc]
+        if WhisperModel is None:
+            raise RuntimeError(
+                "faster-whisper is not installed. "
+                "This function must run inside a Modal container or install faster-whisper locally."
+            )
         model = WhisperModel(
             "large-v3",
             device="cuda",

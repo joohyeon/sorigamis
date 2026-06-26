@@ -58,7 +58,7 @@ All components use the `sg-` prefix (short for Sorigamis):
 - Hermes skills: `sg-orchestrator`, `sg-skill-action-items`, `sg-skill-summary`, etc.
 - Tools: `sg-drive-download`, `sg-whisper-transcribe`, `sg-diarize`, `sg-supabase-write`, `sg-notify-fcm`, `sg-slack-post`, `sg-linear-create`, `sg-webhook-call`
 - Supabase tables: `sg_jobs`, `sg_utterances`, `sg_speakers`, `sg_skill_results`, `sg_action_logs`, `sg_skills`, `sg_modes`
-- Fly.io app: `sg-pipeline`
+- Fly.io app: `sorigamis` (https://sorigamis.fly.dev)
 
 ---
 
@@ -319,11 +319,11 @@ Loaded for every job. Knows the pipeline stages, reads Mode/Skills from context,
 
 ## 9. Deployment
 
-### Fly.io (`sg-pipeline`)
+### Fly.io (`sorigamis`)
 
 ```toml
 # fly.toml
-app = "sg-pipeline"
+app = "sorigamis"
 
 [services]
   internal_port = 8080   # FastAPI
