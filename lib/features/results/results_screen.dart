@@ -72,7 +72,7 @@ class _QualityCardState extends State<_QualityCard> {
             Row(children: [
               Chip(
                 label: Text(_scoreLabel(score)),
-                backgroundColor: _scoreColor(score).withOpacity(0.15),
+                backgroundColor: _scoreColor(score).withValues(alpha: 0.15),
                 labelStyle: TextStyle(color: _scoreColor(score), fontWeight: FontWeight.bold),
               ),
               const SizedBox(width: 8),

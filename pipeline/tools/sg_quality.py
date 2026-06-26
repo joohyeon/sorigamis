@@ -7,19 +7,19 @@ def compute_quality(segments: list[dict]) -> dict:
     score = "good" if avg >= -0.5 else ("fair" if avg >= -0.8 else "poor")
     low = sorted(
         [s for s in segments if s.get("avg_logprob", 0.0) < -1.0],
-        key=lambda s: s["avg_logprob"],
+        key=lambda s: s.get("avg_logprob", 0.0),
     )[:10]
-    duration = max((s["end"] for s in segments), default=0.0)
+    duration = max((s.get("end", 0.0) for s in segments), default=0.0)
     return {
         "transcript_score": score,
         "avg_logprob": avg,
         "low_confidence_count": sum(1 for s in segments if s.get("avg_logprob", 0.0) < -1.0),
         "low_confidence_segments": [
             {
-                "start_sec": s["start"],
-                "end_sec": s["end"],
-                "text": s["text"],
-                "avg_logprob": s["avg_logprob"],
+                "start_sec": s.get("start", 0.0),
+                "end_sec": s.get("end", 0.0),
+                "text": s.get("text", ""),
+                "avg_logprob": s.get("avg_logprob", 0.0),
             }
             for s in low
         ],
