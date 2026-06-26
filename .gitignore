@@ -81,5 +81,9 @@ coverage/
 
 # docs 
 docs/research/
+
+# Local Superpowers/SDD notes
+.superpowers/
+
 # Flutter DevTools (generated)
 devtools_options.yaml
