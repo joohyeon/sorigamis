@@ -1,13 +1,15 @@
+import importlib
 import os
+import sys
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from tests.e2e.sg_validate_team_meeting import ValidationConfig, load_dotenv, preflight
-
 
 def test_load_dotenv_sets_environment_and_returns_loaded_values(tmp_path, monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import load_dotenv
+
     env_file = tmp_path / ".env"
     env_file.write_text(
         """
@@ -40,10 +42,53 @@ def test_load_dotenv_sets_environment_and_returns_loaded_values(tmp_path, monkey
     assert os.environ["SUPABASE_SERVICE_ROLE_KEY"] == "service-role"
 
 
-def test_preflight_requires_smtp_settings_and_attendees_when_send_email(monkeypatch):
+def test_preflight_requires_full_base_environment(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import ValidationConfig, preflight
+
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
-    for key in ["SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM"]:
+    for key in ["GOOGLE_SERVICE_ACCOUNT_JSON", "HERMES_PROVIDER", "HERMES_MODEL"]:
+        monkeypatch.delenv(key, raising=False)
+
+    config = ValidationConfig(
+        file_id="drive-file",
+        server_url="http://localhost:8080",
+        attendees=[],
+        send_email=False,
+        speakers=[],
+        out_path=None,
+    )
+
+    class HealthResponse:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.httpx.get",
+        lambda url, timeout: HealthResponse(),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        preflight(config)
+
+    message = str(exc.value)
+    assert "GOOGLE_SERVICE_ACCOUNT_JSON" in message
+    assert "HERMES_PROVIDER" in message
+    assert "HERMES_MODEL" in message
+
+
+def test_preflight_requires_smtp_settings_and_attendees_when_send_email(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import ValidationConfig, preflight
+
+    for key, value in {
+        "SUPABASE_URL": "https://example.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+        "GOOGLE_SERVICE_ACCOUNT_JSON": "{}",
+        "HERMES_PROVIDER": "openai",
+        "HERMES_MODEL": "gpt-4.1",
+    }.items():
+        monkeypatch.setenv(key, value)
+    for key in ["SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM"]:
         monkeypatch.delenv(key, raising=False)
 
     config = ValidationConfig(
@@ -74,8 +119,18 @@ def test_preflight_requires_smtp_settings_and_attendees_when_send_email(monkeypa
     assert "SMTP_PORT" in message
     assert "SMTP_USERNAME" in message
     assert "SMTP_PASSWORD" in message
-    assert "EMAIL_FROM" in message
+    assert "SMTP_FROM" in message
+    assert "EMAIL_FROM" not in message
     assert "attendee" in message
+
+
+def test_validator_import_does_not_require_supabase_create_client(monkeypatch):
+    monkeypatch.setitem(sys.modules, "supabase", SimpleNamespace())
+    sys.modules.pop("tests.e2e.sg_validate_team_meeting", None)
+
+    module = importlib.import_module("tests.e2e.sg_validate_team_meeting")
+
+    assert module.BASE_ENV
 
 
 class FakeTableQuery:
@@ -152,11 +207,12 @@ class FakeSupabase:
 
 
 class FakeAuthAdmin:
-    def __init__(self):
+    def __init__(self, users=None):
+        self.users = users if users is not None else []
         self.created_users = []
 
     def list_users(self):
-        return []
+        return self.users
 
     def create_user(self, payload):
         self.created_users.append(payload)
@@ -209,3 +265,35 @@ def test_ensure_team_meeting_mode_seeds_email_skill_with_attendees():
     assert mode["name"] == "Team Meeting"
     assert mode["user_id"] == user_id
     assert mode["skill_ids"] == [skills_by_name[name]["id"] for name in skills_by_name]
+
+
+def test_ensure_team_meeting_mode_uses_first_admin_user_from_wrapper():
+    from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
+
+    admin_user_id = str(uuid4())
+    db = FakeSupabase()
+    db.auth.admin = FakeAuthAdmin(
+        users=SimpleNamespace(data=[SimpleNamespace(id=admin_user_id)])
+    )
+
+    mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
+
+    assert mode_id
+    assert user_id == admin_user_id
+    assert db.auth.admin.created_users == []
+
+
+def test_ensure_team_meeting_mode_uses_first_admin_user_from_nested_wrapper():
+    from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
+
+    admin_user_id = str(uuid4())
+    db = FakeSupabase()
+    db.auth.admin = FakeAuthAdmin(
+        users=SimpleNamespace(data=SimpleNamespace(users=[{"id": admin_user_id}]))
+    )
+
+    mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
+
+    assert mode_id
+    assert user_id == admin_user_id
+    assert db.auth.admin.created_users == []

@@ -8,11 +8,22 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-from supabase import create_client
 
 
-BASE_ENV = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
-SMTP_ENV = ("SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM")
+try:
+    from supabase import create_client
+except ImportError:  # pragma: no cover - only needed when running the future CLI
+    create_client = None
+
+
+BASE_ENV = (
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "HERMES_PROVIDER",
+    "HERMES_MODEL",
+)
+SMTP_ENV = ("SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")
 TEAM_MEETING_SKILLS = [
     {
         "name": "Meeting Summary",
@@ -107,14 +118,29 @@ def _user_id(user) -> str | None:
     return getattr(user, "id", None)
 
 
-def _users_from_response(response) -> list:
-    if response is None:
+def _users_from_response(value) -> list:
+    if value is None:
         return []
-    if isinstance(response, list):
-        return response
-    users = getattr(response, "users", None)
-    if users is not None:
-        return list(users)
+    if isinstance(value, list | tuple):
+        return list(value)
+    if _user_id(value):
+        return [value]
+    if isinstance(value, dict):
+        for key in ("users", "data"):
+            if key in value:
+                return _users_from_response(value[key])
+        return []
+
+    for attr in ("users", "data"):
+        users = getattr(value, attr, None)
+        if users is not None:
+            return _users_from_response(users)
+
+    try:
+        return list(value)
+    except TypeError:
+        pass
+
     return []
 
 
