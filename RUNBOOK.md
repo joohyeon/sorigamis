@@ -126,6 +126,32 @@ Do not run `flyctl deploy --config pipeline/fly.toml` from the repo root. That r
 
 ---
 
+## Team Meeting Pipeline E2E Validation
+
+This validation runs outside the mobile app, but exercises the real FastAPI pipeline, Hermes, Supabase, Google Drive, and SMTP integrations end to end.
+
+Prerequisites:
+- `pipeline/.env` contains Supabase, Google, Hermes, and SMTP variables.
+- The Google Drive file is shared with the configured service account.
+- The local FastAPI server is running.
+
+Start the server:
+
+```bash
+cd pipeline
+uv run uvicorn main:app --port 8080
+```
+
+Run the validator:
+
+```bash
+uv run python tests/e2e/sg_validate_team_meeting.py --file-id <drive_file_id> --server-url http://localhost:8080 --attendee your-test-email@example.com --send-email --out /tmp/sg-team-meeting-e2e.json
+```
+
+Expected success: the Supabase job reaches `complete`, Team Meeting skill results are present, the email action log is fired, the recipient receives the email, and the report contains the validation timeline and results.
+
+---
+
 ## 7. Android setup (not yet verified)
 
 Android is currently the stock `flutter create` scaffold — never built or run. To enable it later:
