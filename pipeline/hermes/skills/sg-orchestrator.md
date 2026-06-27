@@ -31,11 +31,16 @@ Transcription and diarization are provided as **deterministic local CLIs** — r
   (`tools.sg_drive_download`, `workers.whisper_worker`, `workers.diarize_worker`)
   exactly as written below. Do **not** reimplement them, do **not** use Modal, do
   **not** `pip install` anything, do **not** invent alternative transcription paths.
-- For **Supabase writes and notifications**, call the provided helper functions in the
-  `tools/` package — `tools.sg_supabase_write` (`update_job_status`, `write_utterances`,
-  `write_speakers`, `write_skill_result`, `write_action_log`) and `tools.sg_notify_fcm`
-  (`send_fcm`). These are library functions (no CLI); invoke them with a short
-  `.venv/bin/python -c "..."` one-liner. Do not hand-roll Supabase REST calls.
+- For **Supabase writes and notifications**, call provided helper functions where they
+  exist in the `tools/` package — `tools.sg_supabase_write` (`update_job_status`,
+  `write_utterances`, `write_speakers`, `write_skill_result`, `write_action_log`) and
+  `tools.sg_notify_fcm` (`send_fcm`). These are library functions (no CLI); invoke them
+  with a short `.venv/bin/python -c "..."` one-liner.
+- Only for the explicitly listed operations that currently lack helper wrappers
+  (`sg_transcript_raw` writes, `sg_utterances.speaker_id` updates, and
+  `sg_speakers.confirmed_name` updates), use a short `.venv/bin/python -c "..."` script
+  with the Supabase client. Keep those updates scoped to the named table and columns.
+  Do not hand-roll arbitrary Supabase REST calls.
 - Use `<job_id>` from the context for all `/tmp/sg-job-<job_id>.*` paths.
 
 ## Pipeline Stages
@@ -113,14 +118,18 @@ Execute these stages in order. Write job status to Supabase before and after eac
 1. Build a plan listing all approved stages: speaker assignment checkpoint, each skill by name, each integration action by destination
 2. Set job status → `awaiting_plan_confirmation`
 3. Write `plan_json` to `sg_jobs`
-4. Send FCM push via `sg-notify-fcm` with title "Review your pipeline plan"
+4. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Review your pipeline plan".
 5. **STOP and wait.** Do not proceed until job status changes to `executing` (poll `sg_jobs` every 5s, timeout 30min)
 
 ### Stage 4: Speaker Checkpoint
-1. Read `per_step_overrides` from confirmed `plan_json` — apply any user edits
+1. Read `plan_json.overrides` from confirmed `plan_json` — apply any user edits
 2. Set job status → `awaiting_checkpoint`
 3. Write checkpoint: `{"type": "speaker_assignment", "speakers": [{id, label, talk_time_pct}]}`
-4. Send FCM push: "Assign speaker names"
+4. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Assign speaker names".
 5. **STOP and wait** for status → `executing`. Read `checkpoint_json` for confirmed names.
 6. Update `sg_speakers.confirmed_name` for each speaker
 
@@ -148,7 +157,9 @@ For each skill in the approved skills list where `require_review == true`:
    update_job_status('<job_id>', 'awaiting_skill_review', extra={'checkpoint_json': checkpoint})
    "
    ```
-2. Send FCM push via `sg-notify-fcm` with title "Review [skill_name] before actions fire".
+2. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Review [skill_name] before actions fire".
 3. **STOP and wait.** Poll `sg_jobs.status` every 5s. Timeout after 30 minutes → treat as skip (do not fail the job).
 4. On resume: read `checkpoint_json`.
    - If `{"skipped": true}` — skip all integration actions for this skill; continue to the next skill.
@@ -160,7 +171,9 @@ Skills with `require_review == false` skip Stage 5.5 entirely and proceed direct
 For each integration action in each skill:
 1. Set job status → `awaiting_checkpoint`
 2. Write checkpoint: `{"type": "action_confirmation", "action_type": "slack", "destination": "#meetings", "preview": "..."}`
-3. Send FCM push: "Confirm action before sending"
+3. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Confirm action before sending".
 4. **STOP and wait.** On resume, check if action was approved or skipped in `checkpoint_json`
 5. If approved: call the appropriate tool (`sg-slack-post`, `sg-linear-create`, `sg-webhook-call`)
 6. Write result to `sg_action_logs`
@@ -201,15 +214,17 @@ Email actions are handled explicitly:
    update_job_status('<job_id>', 'awaiting_checkpoint', extra={'checkpoint_json': checkpoint})
    "
    ```
-4. Send FCM push: "Confirm action before sending". **STOP and wait.** On resume, check
-   if the email action was approved or skipped in `checkpoint_json`.
+4. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Confirm action before sending". **STOP and wait.** On resume, check if the
+   email action was approved or skipped in `checkpoint_json`.
 5. After approval, call the SMTP helper with `.venv/bin/python -c`, importing
    `tools.sg_email_send.send_email`. Do not hand-roll SMTP calls:
    ```
    .venv/bin/python -c "
    from tools.sg_email_send import send_email
    result = send_email(
-       to=[\"<meeting attendee emails>\"],
+       recipients=[\"<meeting attendee emails>\"],
        subject=\"Meeting Follow-up Email\",
        body_markdown=\"<approved body markdown>\",
    )
@@ -226,7 +241,9 @@ Email actions are handled explicitly:
 
 ### Stage 7: Complete
 1. Set job status → `complete`
-2. Send FCM push: "Your results are ready"
+2. Send FCM push by calling the helper function
+   `send_fcm(device_token, title, body, creds_json)` from `tools.sg_notify_fcm` with
+   title "Your results are ready".
 
 ## Error Handling
 - **A slow or long-running command is NOT a failure.** Never set status → `failed`

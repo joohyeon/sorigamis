@@ -112,6 +112,11 @@ def test_orchestrator_prompt_contains_email_action_instructions():
     prompt = _build_prompt('{"job_id":"job-1"}')
 
     assert "sg_email_send" in prompt
+    assert "recipients=" in prompt
+    assert "send_email(to=" not in prompt
     assert "action_type\": \"email\"" in prompt
     assert "Meeting Follow-up Email" in prompt
     assert "SMTP" in prompt
+    assert "plan_json.overrides" in prompt
+    assert "per_step_overrides" not in prompt
+    assert "send_fcm(device_token, title, body, creds_json)" in prompt
