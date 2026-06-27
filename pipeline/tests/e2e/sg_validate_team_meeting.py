@@ -10,10 +10,7 @@ from uuid import uuid4
 import httpx
 
 
-try:
-    from supabase import create_client
-except ImportError:  # pragma: no cover - only needed when running the future CLI
-    create_client = None
+create_client = None
 
 
 BASE_ENV = (
@@ -74,7 +71,7 @@ class ValidationConfig:
     server_url: str
     attendees: list[str]
     send_email: bool
-    speakers: list[str]
+    speakers: list[tuple[str, str]] | list[str]
     out_path: Path | None
 
 
@@ -102,6 +99,41 @@ def load_dotenv(path: Path) -> dict[str, str]:
 
 def _missing_env(keys):
     return [key for key in keys if not os.environ.get(key)]
+
+
+def _parse_speaker(value: str) -> tuple[str, str]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("speaker must be LABEL=Name")
+
+    label, name = value.split("=", 1)
+    label = label.strip()
+    name = name.strip()
+    if not label or not name:
+        raise argparse.ArgumentTypeError("speaker must include non-empty LABEL and Name")
+    return label, name
+
+
+def parse_args(argv=None) -> ValidationConfig:
+    parser = argparse.ArgumentParser(description="Run the Sorigamis Team Meeting E2E validator")
+    parser.add_argument("--file-id", required=True)
+    parser.add_argument("--server-url", default="http://localhost:8080")
+    parser.add_argument("--env-file", default=".env")
+    parser.add_argument("--attendee", action="append", default=[])
+    parser.add_argument("--send-email", action="store_true")
+    parser.add_argument("--speaker", action="append", type=_parse_speaker, default=[])
+    parser.add_argument("--out", default="/tmp/sg-team-meeting-e2e.json")
+    args = parser.parse_args(argv)
+
+    load_dotenv(Path(args.env_file))
+
+    return ValidationConfig(
+        file_id=args.file_id,
+        server_url=args.server_url.rstrip("/"),
+        attendees=args.attendee,
+        send_email=args.send_email,
+        speakers=args.speaker,
+        out_path=Path(args.out),
+    )
 
 
 def preflight(config: ValidationConfig):
@@ -247,6 +279,10 @@ def _speaker_mapping(speakers: dict[str, str] | list[str]) -> dict[str, str]:
 
     mapping = {}
     for speaker in speakers:
+        if isinstance(speaker, tuple):
+            label, name = speaker
+            mapping[label] = name
+            continue
         if "=" not in speaker:
             continue
         label, name = speaker.split("=", 1)
@@ -433,3 +469,49 @@ def poll_job(config: ValidationConfig, job_id: str, mode_id: str) -> dict:
         "email_action_status": "skipped" if not config.send_email else "missing",
         "error": "timeout",
     }
+
+
+def _create_supabase_client():
+    client_factory = create_client
+    if client_factory is None:
+        try:
+            from supabase import create_client as imported_create_client
+        except ImportError as exc:
+            raise RuntimeError("supabase create_client is unavailable") from exc
+        client_factory = imported_create_client
+
+    return client_factory(
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    )
+
+
+def main(argv=None) -> int:
+    config = parse_args(argv)
+    preflight(config)
+    db = _create_supabase_client()
+    mode_id, user_id = ensure_team_meeting_mode(db, config.attendees)
+
+    response = httpx.post(
+        f"{config.server_url}/jobs",
+        json={
+            "drive_file_id": config.file_id,
+            "mode_id": mode_id,
+            "user_id": user_id,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    job_id = response.json()["job_id"]
+
+    report = poll_job(config, job_id, mode_id)
+    output = json.dumps(report, ensure_ascii=False, indent=2)
+    if config.out_path is not None:
+        config.out_path.parent.mkdir(parents=True, exist_ok=True)
+        config.out_path.write_text(f"{output}\n", encoding="utf-8")
+    print(output)
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -135,6 +136,156 @@ def test_validator_import_does_not_require_supabase_create_client(monkeypatch):
     module = importlib.import_module("tests.e2e.sg_validate_team_meeting")
 
     assert module.BASE_ENV
+
+
+def test_parse_args_collects_attendees_and_speaker_mappings(tmp_path, monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import parse_args
+
+    env_file = tmp_path / ".env"
+    out_path = tmp_path / "report.json"
+    loaded_paths = []
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.load_dotenv",
+        lambda path: loaded_paths.append(path),
+    )
+
+    config = parse_args(
+        [
+            "--file-id",
+            "drive-1",
+            "--env-file",
+            str(env_file),
+            "--attendee",
+            "alice@example.com",
+            "--attendee",
+            "bob@example.com",
+            "--speaker",
+            "A=Alice",
+            "--send-email",
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    assert config.file_id == "drive-1"
+    assert config.attendees == ["alice@example.com", "bob@example.com"]
+    assert config.speakers == [("A", "Alice")]
+    assert config.send_email is True
+    assert config.out_path == out_path
+    assert loaded_paths == [env_file]
+
+
+def test_main_writes_report_and_returns_zero_when_report_passed(
+    tmp_path, monkeypatch, capsys
+):
+    from tests.e2e import sg_validate_team_meeting as validator
+
+    out_path = tmp_path / "report.json"
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            calls.append(("raise_for_status",))
+
+        def json(self):
+            return {"job_id": "job-1"}
+
+    monkeypatch.setattr(validator, "load_dotenv", lambda path: calls.append(("env", path)))
+    monkeypatch.setattr(validator, "preflight", lambda config: calls.append(("preflight", config)))
+    monkeypatch.setattr(
+        validator,
+        "create_client",
+        lambda url, key: calls.append(("create_client", url, key)) or "db",
+    )
+    monkeypatch.setattr(
+        validator,
+        "ensure_team_meeting_mode",
+        lambda db, attendees: calls.append(("ensure_mode", db, attendees))
+        or ("mode-1", "user-1"),
+    )
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
+    monkeypatch.setattr(
+        validator.httpx,
+        "post",
+        lambda url, json, timeout: calls.append(("post", url, json, timeout))
+        or FakeResponse(),
+    )
+    monkeypatch.setattr(
+        validator,
+        "poll_job",
+        lambda config, job_id, mode_id: calls.append(("poll", job_id, mode_id))
+        or {"passed": True, "job_id": job_id, "mode_id": mode_id},
+    )
+
+    result = validator.main(
+        [
+            "--file-id",
+            "drive-1",
+            "--server-url",
+            "http://validator.test/",
+            "--attendee",
+            "alice@example.com",
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    assert result == 0
+    assert json.loads(out_path.read_text(encoding="utf-8")) == {
+        "passed": True,
+        "job_id": "job-1",
+        "mode_id": "mode-1",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "passed": True,
+        "job_id": "job-1",
+        "mode_id": "mode-1",
+    }
+    assert (
+        "post",
+        "http://validator.test/jobs",
+        {
+            "drive_file_id": "drive-1",
+            "mode_id": "mode-1",
+            "user_id": "user-1",
+        },
+        30,
+    ) in calls
+
+
+def test_main_returns_one_when_report_failed(tmp_path, monkeypatch):
+    from tests.e2e import sg_validate_team_meeting as validator
+
+    out_path = tmp_path / "report.json"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"job_id": "job-1"}
+
+    monkeypatch.setattr(validator, "load_dotenv", lambda path: None)
+    monkeypatch.setattr(validator, "preflight", lambda config: None)
+    monkeypatch.setattr(validator, "create_client", lambda url, key: "db")
+    monkeypatch.setattr(
+        validator,
+        "ensure_team_meeting_mode",
+        lambda db, attendees: ("mode-1", "user-1"),
+    )
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
+    monkeypatch.setattr(validator.httpx, "post", lambda url, json, timeout: FakeResponse())
+    monkeypatch.setattr(
+        validator,
+        "poll_job",
+        lambda config, job_id, mode_id: {"passed": False, "job_id": job_id},
+    )
+
+    result = validator.main(["--file-id", "drive-1", "--out", str(out_path)])
+
+    assert result == 1
 
 
 class FakeTableQuery:
