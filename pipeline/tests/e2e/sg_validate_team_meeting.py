@@ -463,6 +463,7 @@ def poll_job(config: ValidationConfig, job_id: str, mode_id: str) -> dict:
                 send_email=config.send_email,
             )
         elif status == "failed":
+            error = job_info.get("error") or "job failed"
             return {
                 "passed": False,
                 "job_id": job_id,
@@ -472,7 +473,7 @@ def poll_job(config: ValidationConfig, job_id: str, mode_id: str) -> dict:
                 "skill_results": [],
                 "action_logs": [],
                 "email_action_status": "skipped" if not config.send_email else "missing",
-                "error": job_info.get("error") or "job failed",
+                "error": _sanitize_error_message(str(error)),
             }
 
         if attempt < max_attempts - 1:
@@ -506,8 +507,7 @@ def _create_supabase_client():
     )
 
 
-def _sanitize_error(exc: Exception) -> str:
-    message = str(exc)
+def _sanitize_error_message(message: str) -> str:
     secret_values = [
         os.environ[key]
         for key in SECRET_ENV
@@ -516,6 +516,11 @@ def _sanitize_error(exc: Exception) -> str:
     for value in sorted(secret_values, key=len, reverse=True):
         message = message.replace(value, "[redacted]")
     message = message.replace("\r", " ").replace("\n", " ")
+    return message[:1000]
+
+
+def _sanitize_error(exc: Exception) -> str:
+    message = _sanitize_error_message(str(exc))
     return f"{type(exc).__name__}: {message}"[:1000]
 
 

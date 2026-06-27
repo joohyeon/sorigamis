@@ -856,6 +856,44 @@ def test_poll_job_returns_failed_report_on_job_failure(monkeypatch):
     assert report["timeline"] == [{"status": "failed", "checkpoint": None}]
 
 
+def test_poll_job_redacts_secret_from_failed_job_error(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import ValidationConfig, poll_job
+
+    secret = "super-secret"
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", secret)
+
+    config = ValidationConfig(
+        file_id="drive-file",
+        server_url="http://validator.test",
+        attendees=[],
+        send_email=False,
+        speakers=[],
+        out_path=None,
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "job_id": "job-1",
+                "status": "failed",
+                "error": f"pipeline failed with {secret}",
+            }
+
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.httpx.get",
+        lambda url, timeout: FakeResponse(),
+    )
+
+    report = poll_job(config, job_id="job-1", mode_id="mode-1")
+
+    assert report["passed"] is False
+    assert secret not in report["error"]
+    assert "[redacted]" in report["error"]
+
+
 def test_poll_job_does_not_sleep_after_final_timeout_attempt(monkeypatch):
     from tests.e2e.sg_validate_team_meeting import ValidationConfig, poll_job
 
