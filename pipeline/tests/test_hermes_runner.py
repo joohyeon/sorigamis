@@ -120,3 +120,7 @@ def test_orchestrator_prompt_contains_email_action_instructions():
     assert "plan_json.overrides" in prompt
     assert "per_step_overrides" not in prompt
     assert "send_fcm(device_token, title, body, creds_json)" in prompt
+    assert "subject from the integration action config" in prompt
+    assert "fallback to \"Team Meeting follow-up\"" in prompt
+    assert "\"subject\": \"Team Meeting follow-up\"" in prompt
+    assert 'subject=\\"Team Meeting follow-up\\"' in prompt

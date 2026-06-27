@@ -936,9 +936,55 @@ def test_poll_job_does_not_sleep_after_final_timeout_attempt(monkeypatch):
         lambda seconds: sleeps.append(seconds),
     )
 
+    report = poll_job(
+        config,
+        job_id="job-1",
+        mode_id="mode-1",
+        max_attempts=3,
+        poll_interval=2,
+    )
+
+    assert report["passed"] is False
+    assert report["error"] == "timeout"
+    assert poll_count == 3
+    assert sleeps == [2, 2]
+
+
+def test_poll_job_default_polling_budget_is_120_minutes(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import ValidationConfig, poll_job
+
+    config = ValidationConfig(
+        file_id="drive-file",
+        server_url="http://validator.test",
+        attendees=[],
+        send_email=False,
+        speakers=[],
+        out_path=None,
+    )
+    poll_count = 0
+    sleeps = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            nonlocal poll_count
+            poll_count += 1
+            return {"job_id": "job-1", "status": "executing"}
+
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.httpx.get",
+        lambda url, timeout: FakeResponse(),
+    )
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
     report = poll_job(config, job_id="job-1", mode_id="mode-1")
 
     assert report["passed"] is False
     assert report["error"] == "timeout"
-    assert poll_count == 40
-    assert sleeps == [15] * 39
+    assert poll_count * 15 == 120 * 60
+    assert sleeps == [15] * (poll_count - 1)

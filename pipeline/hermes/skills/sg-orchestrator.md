@@ -183,6 +183,9 @@ Email actions are handled explicitly:
    `{"type": "email"}`, build the email body from approved skill outputs and the
    speaker-attributed transcript.
 2. The email must include the meeting summary, action items with owners, and decisions.
+   Use the subject from the integration action config
+   (`integration_action.config.subject`); fallback to "Team Meeting follow-up" only
+   when no subject is configured.
 3. Before sending, write an action confirmation checkpoint with a structured preview.
    Required JSON shape:
    ```json
@@ -192,7 +195,7 @@ Email actions are handled explicitly:
      "destination": "meeting_attendees",
      "preview": {
        "to": ["<meeting attendee emails>"],
-       "subject": "Meeting Follow-up Email",
+       "subject": "Team Meeting follow-up",
        "body_markdown": "<summary, action items with owners, and decisions>"
      }
    }
@@ -207,7 +210,7 @@ Email actions are handled explicitly:
        \"destination\": \"meeting_attendees\",
        \"preview\": {
            \"to\": [\"<meeting attendee emails>\"],
-           \"subject\": \"Meeting Follow-up Email\",
+           \"subject\": \"Team Meeting follow-up\",
            \"body_markdown\": \"<summary, action items with owners, and decisions>\",
        },
    }
@@ -225,7 +228,7 @@ Email actions are handled explicitly:
    from tools.sg_email_send import send_email
    result = send_email(
        recipients=[\"<meeting attendee emails>\"],
-       subject=\"Meeting Follow-up Email\",
+       subject=\"Team Meeting follow-up\",
        body_markdown=\"<approved body markdown>\",
    )
    print(result)

@@ -408,11 +408,19 @@ def _approved_steps(plan: dict | None) -> list[str]:
     return ["speaker_assignment", *EXPECTED_SKILLS]
 
 
-def poll_job(config: ValidationConfig, job_id: str, mode_id: str) -> dict:
+def poll_job(
+    config: ValidationConfig,
+    job_id: str,
+    mode_id: str,
+    *,
+    max_attempts: int | None = None,
+    poll_interval: int = 15,
+) -> dict:
     timeline = []
     base_url = config.server_url.rstrip("/")
     speaker_names = _speaker_mapping(config.speakers)
-    max_attempts = 40
+    if max_attempts is None:
+        max_attempts = (120 * 60) // poll_interval
 
     for attempt in range(max_attempts):
         response = httpx.get(f"{base_url}/jobs/{job_id}", timeout=30)
@@ -477,7 +485,7 @@ def poll_job(config: ValidationConfig, job_id: str, mode_id: str) -> dict:
             }
 
         if attempt < max_attempts - 1:
-            time.sleep(15)
+            time.sleep(poll_interval)
 
     return {
         "passed": False,
