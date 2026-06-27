@@ -195,7 +195,7 @@ Email actions are handled explicitly:
      "destination": "meeting_attendees",
      "preview": {
        "to": ["<meeting attendee emails>"],
-       "subject": "Team Meeting follow-up",
+       "subject": "<subject_from_integration_action_config_or_default>",
        "body_markdown": "<summary, action items with owners, and decisions>"
      }
    }
@@ -210,7 +210,7 @@ Email actions are handled explicitly:
        \"destination\": \"meeting_attendees\",
        \"preview\": {
            \"to\": [\"<meeting attendee emails>\"],
-           \"subject\": \"Team Meeting follow-up\",
+           \"subject\": \"<subject_from_integration_action_config_or_default>\",
            \"body_markdown\": \"<summary, action items with owners, and decisions>\",
        },
    }
@@ -228,7 +228,7 @@ Email actions are handled explicitly:
    from tools.sg_email_send import send_email
    result = send_email(
        recipients=[\"<meeting attendee emails>\"],
-       subject=\"Team Meeting follow-up\",
+       subject=\"<subject_from_integration_action_config_or_default>\",
        body_markdown=\"<approved body markdown>\",
    )
    print(result)

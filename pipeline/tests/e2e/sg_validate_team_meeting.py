@@ -44,7 +44,7 @@ TEAM_MEETING_SKILLS = [
             "Summarize the transcript into a clear, concise paragraph covering "
             "the main topics discussed."
         ),
-        "is_default": True,
+        "is_default": False,
         "require_review": False,
         "integration_actions": [],
     },
@@ -56,7 +56,7 @@ TEAM_MEETING_SKILLS = [
             "text (the task), owner (speaker name if mentioned, else null). "
             'Return as JSON array: [{"text":"...","owner":"..."}]'
         ),
-        "is_default": True,
+        "is_default": False,
         "require_review": True,
         "integration_actions": [],
     },
@@ -67,7 +67,7 @@ TEAM_MEETING_SKILLS = [
             "List all decisions made during the conversation. Return as a JSON "
             'array of strings: ["Decision 1","Decision 2"]'
         ),
-        "is_default": True,
+        "is_default": False,
         "require_review": False,
         "integration_actions": [],
     },
@@ -231,7 +231,7 @@ def _email_skill(attendees: list[str]) -> dict:
             "Write a concise follow-up email for the meeting. Include a summary, "
             "action items, decisions, and next steps."
         ),
-        "is_default": True,
+        "is_default": False,
         "require_review": True,
         "integration_actions": [
             {
@@ -246,16 +246,14 @@ def _email_skill(attendees: list[str]) -> dict:
     }
 
 
-def _ensure_skill(db, skill: dict) -> str:
-    payload = {**skill, "user_id": None}
+def _ensure_skill(db, skill: dict, user_id: str) -> str:
+    payload = {**skill, "user_id": user_id, "is_default": False}
     query = (
         db.table("sg_skills")
         .select("id")
         .eq("name", skill["name"])
-        .eq("is_default", True)
+        .eq("user_id", user_id)
     )
-    if hasattr(query, "is_"):
-        query = query.is_("user_id", "null")
     existing = query.execute().data
     if existing:
         skill_id = existing[0]["id"]
@@ -269,7 +267,7 @@ def _ensure_skill(db, skill: dict) -> str:
 def ensure_team_meeting_mode(db, attendees: list[str]) -> tuple[str, str]:
     user_id = _first_or_create_user(db)
     skills = [*TEAM_MEETING_SKILLS, _email_skill(attendees)]
-    skill_ids = [_ensure_skill(db, skill) for skill in skills]
+    skill_ids = [_ensure_skill(db, skill, user_id) for skill in skills]
 
     payload = {
         "name": "Team Meeting",

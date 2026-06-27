@@ -122,5 +122,6 @@ def test_orchestrator_prompt_contains_email_action_instructions():
     assert "send_fcm(device_token, title, body, creds_json)" in prompt
     assert "subject from the integration action config" in prompt
     assert "fallback to \"Team Meeting follow-up\"" in prompt
-    assert "\"subject\": \"Team Meeting follow-up\"" in prompt
-    assert 'subject=\\"Team Meeting follow-up\\"' in prompt
+    assert "<subject_from_integration_action_config_or_default>" in prompt
+    assert "\"subject\": \"Team Meeting follow-up\"" not in prompt
+    assert 'subject=\\"Team Meeting follow-up\\"' not in prompt

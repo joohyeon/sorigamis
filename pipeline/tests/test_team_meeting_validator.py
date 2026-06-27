@@ -475,22 +475,24 @@ class FakeAuthAdmin:
         return SimpleNamespace(user=SimpleNamespace(id=str(uuid4())))
 
 
-def test_ensure_team_meeting_mode_seeds_email_skill_with_attendees():
+def test_ensure_team_meeting_mode_seeds_user_owned_email_skill_with_attendees():
     from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
 
+    selected_user_id = str(uuid4())
     db = FakeSupabase(
         skills=[
             {
                 "id": str(uuid4()),
-                "user_id": None,
+                "user_id": selected_user_id,
                 "name": "Meeting Summary",
                 "description": "stale",
                 "ai_prompt": "stale",
                 "integration_actions": [{"type": "webhook"}],
-                "is_default": True,
+                "is_default": False,
                 "require_review": True,
             }
-        ]
+        ],
+        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
     )
     attendees = ["alice@example.com", "bob@example.com"]
 
@@ -508,7 +510,8 @@ def test_ensure_team_meeting_mode_seeds_email_skill_with_attendees():
     ]
 
     for name in ["Meeting Summary", "Action Items", "Decision Log"]:
-        assert skills_by_name[name]["is_default"] is True
+        assert skills_by_name[name]["user_id"] == selected_user_id
+        assert skills_by_name[name]["is_default"] is False
         assert skills_by_name[name]["integration_actions"] == []
 
     assert skills_by_name["Meeting Summary"]["description"] != "stale"
@@ -518,6 +521,8 @@ def test_ensure_team_meeting_mode_seeds_email_skill_with_attendees():
     )
 
     email_skill = skills_by_name["Meeting Follow-up Email"]
+    assert email_skill["user_id"] == selected_user_id
+    assert email_skill["is_default"] is False
     assert email_skill["require_review"] is True
     assert email_skill["integration_actions"] == [
         {
@@ -568,15 +573,17 @@ def test_ensure_team_meeting_mode_uses_first_admin_user_from_nested_wrapper():
     assert db.auth.admin.created_users == []
 
 
-def test_ensure_team_meeting_mode_ignores_non_default_same_name_skill():
+def test_ensure_team_meeting_mode_ignores_same_name_skill_for_another_user():
     from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
 
-    user_owned_action_items_id = str(uuid4())
+    selected_user_id = str(uuid4())
+    other_user_id = str(uuid4())
+    other_user_action_items_id = str(uuid4())
     db = FakeSupabase(
         skills=[
             {
-                "id": user_owned_action_items_id,
-                "user_id": str(uuid4()),
+                "id": other_user_action_items_id,
+                "user_id": other_user_id,
                 "name": "Action Items",
                 "description": "user-owned",
                 "ai_prompt": "do not touch",
@@ -584,21 +591,28 @@ def test_ensure_team_meeting_mode_ignores_non_default_same_name_skill():
                 "is_default": False,
                 "require_review": False,
             }
-        ]
+        ],
+        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
     )
 
-    ensure_team_meeting_mode(db, attendees=[])
+    _, user_id = ensure_team_meeting_mode(db, attendees=[])
 
+    assert user_id == selected_user_id
     action_items = [
         row for row in db.rows["sg_skills"] if row["name"] == "Action Items"
     ]
     assert len(action_items) == 2
-    user_owned = next(row for row in action_items if row["id"] == user_owned_action_items_id)
-    default_seeded = next(row for row in action_items if row["id"] != user_owned_action_items_id)
-    assert user_owned["is_default"] is False
-    assert user_owned["ai_prompt"] == "do not touch"
-    assert default_seeded["is_default"] is True
-    assert default_seeded["user_id"] is None
+    other_user_owned = next(
+        row for row in action_items if row["id"] == other_user_action_items_id
+    )
+    selected_user_seeded = next(
+        row for row in action_items if row["id"] != other_user_action_items_id
+    )
+    assert other_user_owned["user_id"] == other_user_id
+    assert other_user_owned["is_default"] is False
+    assert other_user_owned["ai_prompt"] == "do not touch"
+    assert selected_user_seeded["user_id"] == selected_user_id
+    assert selected_user_seeded["is_default"] is False
 
 
 def test_ensure_team_meeting_mode_scopes_mode_lookup_to_selected_user():
