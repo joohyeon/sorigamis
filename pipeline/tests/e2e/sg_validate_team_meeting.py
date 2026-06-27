@@ -36,6 +36,7 @@ EXPECTED_SKILLS = [
     "Decision Log",
     "Meeting Follow-up Email",
 ]
+DEFAULT_E2E_USER_EMAIL = "sorigamis-e2e@example.com"
 TEAM_MEETING_SKILLS = [
     {
         "name": "Meeting Summary",
@@ -79,6 +80,7 @@ class ValidationConfig:
     file_id: str
     server_url: str
     attendees: list[str]
+    user_email: str
     send_email: bool
     speakers: list[tuple[str, str]] | list[str]
     out_path: Path | None
@@ -138,6 +140,7 @@ def parse_args(argv=None) -> ValidationConfig:
     parser.add_argument("--server-url", default="http://localhost:8080")
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--attendee", action="append", default=[])
+    parser.add_argument("--user-email", default=DEFAULT_E2E_USER_EMAIL)
     parser.add_argument("--send-email", action="store_true")
     parser.add_argument("--speaker", action="append", type=_parse_speaker, default=[])
     parser.add_argument("--out", default=str(_default_out_path()))
@@ -149,6 +152,7 @@ def parse_args(argv=None) -> ValidationConfig:
         file_id=args.file_id,
         server_url=args.server_url.rstrip("/"),
         attendees=args.attendee,
+        user_email=args.user_email,
         send_email=args.send_email,
         speakers=args.speaker,
         out_path=Path(args.out),
@@ -174,6 +178,12 @@ def _user_id(user) -> str | None:
     if isinstance(user, dict):
         return user.get("id")
     return getattr(user, "id", None)
+
+
+def _user_email(user) -> str | None:
+    if isinstance(user, dict):
+        return user.get("email")
+    return getattr(user, "email", None)
 
 
 def _users_from_response(value) -> list:
@@ -202,16 +212,16 @@ def _users_from_response(value) -> list:
     return []
 
 
-def _first_or_create_user(db) -> str:
+def _get_or_create_e2e_user(db, email: str) -> str:
     users = _users_from_response(db.auth.admin.list_users())
     for user in users:
         user_id = _user_id(user)
-        if user_id:
+        if user_id and _user_email(user) == email:
             return user_id
 
     created = db.auth.admin.create_user(
         {
-            "email": f"sorigamis-e2e-{uuid4()}@example.com",
+            "email": email,
             "password": secrets.token_urlsafe(24),
             "email_confirm": True,
         }
@@ -264,8 +274,12 @@ def _ensure_skill(db, skill: dict, user_id: str) -> str:
     return created[0]["id"]
 
 
-def ensure_team_meeting_mode(db, attendees: list[str]) -> tuple[str, str]:
-    user_id = _first_or_create_user(db)
+def ensure_team_meeting_mode(
+    db,
+    attendees: list[str],
+    user_email: str = DEFAULT_E2E_USER_EMAIL,
+) -> tuple[str, str]:
+    user_id = _get_or_create_e2e_user(db, user_email)
     skills = [*TEAM_MEETING_SKILLS, _email_skill(attendees)]
     skill_ids = [_ensure_skill(db, skill, user_id) for skill in skills]
 
@@ -558,7 +572,11 @@ def main(argv=None) -> int:
     try:
         preflight(config)
         db = _create_supabase_client()
-        mode_id, user_id = ensure_team_meeting_mode(db, config.attendees)
+        mode_id, user_id = ensure_team_meeting_mode(
+            db,
+            config.attendees,
+            config.user_email,
+        )
 
         response = httpx.post(
             f"{config.server_url}/jobs",

@@ -59,6 +59,7 @@ def test_preflight_requires_full_base_environment(monkeypatch):
         file_id="drive-file",
         server_url="http://localhost:8080",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=False,
         speakers=[],
         out_path=None,
@@ -100,6 +101,7 @@ def test_preflight_requires_smtp_settings_and_attendees_when_send_email(monkeypa
         file_id="drive-file",
         server_url="http://localhost:8080",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=True,
         speakers=[],
         out_path=None,
@@ -159,6 +161,8 @@ def test_parse_args_collects_attendees_and_speaker_mappings(tmp_path, monkeypatc
             "alice@example.com",
             "--attendee",
             "bob@example.com",
+            "--user-email",
+            "team-meeting-e2e@example.com",
             "--speaker",
             "A=Alice",
             "--send-email",
@@ -169,10 +173,21 @@ def test_parse_args_collects_attendees_and_speaker_mappings(tmp_path, monkeypatc
 
     assert config.file_id == "drive-1"
     assert config.attendees == ["alice@example.com", "bob@example.com"]
+    assert config.user_email == "team-meeting-e2e@example.com"
     assert config.speakers == [("A", "Alice")]
     assert config.send_email is True
     assert config.out_path == out_path
     assert loaded_paths == [env_file]
+
+
+def test_parse_args_defaults_to_namespaced_e2e_user_email(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import parse_args
+
+    monkeypatch.setattr("tests.e2e.sg_validate_team_meeting.load_dotenv", lambda path: None)
+
+    config = parse_args(["--file-id", "drive-1"])
+
+    assert config.user_email == "sorigamis-e2e@example.com"
 
 
 def test_parse_args_default_out_path_is_random_json(monkeypatch):
@@ -241,7 +256,7 @@ def test_main_writes_report_and_returns_zero_when_report_passed(
     monkeypatch.setattr(
         validator,
         "ensure_team_meeting_mode",
-        lambda db, attendees: calls.append(("ensure_mode", db, attendees))
+        lambda db, attendees, user_email: calls.append(("ensure_mode", db, attendees, user_email))
         or ("mode-1", "user-1"),
     )
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
@@ -267,6 +282,8 @@ def test_main_writes_report_and_returns_zero_when_report_passed(
             "http://validator.test/",
             "--attendee",
             "alice@example.com",
+            "--user-email",
+            "team-meeting-e2e@example.com",
             "--out",
             str(out_path),
         ]
@@ -293,6 +310,7 @@ def test_main_writes_report_and_returns_zero_when_report_passed(
         },
         30,
     ) in calls
+    assert ("ensure_mode", "db", ["alice@example.com"], "team-meeting-e2e@example.com") in calls
 
 
 def test_main_returns_one_when_report_failed(tmp_path, monkeypatch):
@@ -313,7 +331,7 @@ def test_main_returns_one_when_report_failed(tmp_path, monkeypatch):
     monkeypatch.setattr(
         validator,
         "ensure_team_meeting_mode",
-        lambda db, attendees: ("mode-1", "user-1"),
+        lambda db, attendees, user_email: ("mode-1", "user-1"),
     )
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
@@ -347,7 +365,7 @@ def test_main_writes_failure_report_when_poll_job_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(
         validator,
         "ensure_team_meeting_mode",
-        lambda db, attendees: ("mode-1", "user-1"),
+        lambda db, attendees, user_email: ("mode-1", "user-1"),
     )
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
@@ -492,7 +510,14 @@ def test_ensure_team_meeting_mode_seeds_user_owned_email_skill_with_attendees():
                 "require_review": True,
             }
         ],
-        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
+        admin=FakeAuthAdmin(
+            users=[
+                SimpleNamespace(
+                    id=selected_user_id,
+                    email="sorigamis-e2e@example.com",
+                )
+            ]
+        ),
     )
     attendees = ["alice@example.com", "bob@example.com"]
 
@@ -541,35 +566,59 @@ def test_ensure_team_meeting_mode_seeds_user_owned_email_skill_with_attendees():
     assert mode["skill_ids"] == [skills_by_name[name]["id"] for name in skills_by_name]
 
 
-def test_ensure_team_meeting_mode_uses_first_admin_user_from_wrapper():
+def test_ensure_team_meeting_mode_ignores_arbitrary_admin_users_when_email_does_not_match():
     from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
 
-    admin_user_id = str(uuid4())
+    arbitrary_user_id = str(uuid4())
     db = FakeSupabase()
     db.auth.admin = FakeAuthAdmin(
-        users=SimpleNamespace(data=[SimpleNamespace(id=admin_user_id)])
+        users=SimpleNamespace(
+            data=[SimpleNamespace(id=arbitrary_user_id, email="real-user@example.com")]
+        )
     )
 
-    mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
+    mode_id, user_id = ensure_team_meeting_mode(
+        db,
+        attendees=[],
+        user_email="sorigamis-e2e@example.com",
+    )
 
     assert mode_id
-    assert user_id == admin_user_id
-    assert db.auth.admin.created_users == []
+    assert user_id != arbitrary_user_id
+    assert db.auth.admin.created_users == [
+        {
+            "email": "sorigamis-e2e@example.com",
+            "password": db.auth.admin.created_users[0]["password"],
+            "email_confirm": True,
+        }
+    ]
 
 
-def test_ensure_team_meeting_mode_uses_first_admin_user_from_nested_wrapper():
+def test_ensure_team_meeting_mode_reuses_matching_e2e_user_from_nested_wrapper():
     from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
 
-    admin_user_id = str(uuid4())
+    arbitrary_user_id = str(uuid4())
+    e2e_user_id = str(uuid4())
     db = FakeSupabase()
     db.auth.admin = FakeAuthAdmin(
-        users=SimpleNamespace(data=SimpleNamespace(users=[{"id": admin_user_id}]))
+        users=SimpleNamespace(
+            data=SimpleNamespace(
+                users=[
+                    {"id": arbitrary_user_id, "email": "real-user@example.com"},
+                    {"id": e2e_user_id, "email": "sorigamis-e2e@example.com"},
+                ]
+            )
+        )
     )
 
-    mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
+    mode_id, user_id = ensure_team_meeting_mode(
+        db,
+        attendees=[],
+        user_email="sorigamis-e2e@example.com",
+    )
 
     assert mode_id
-    assert user_id == admin_user_id
+    assert user_id == e2e_user_id
     assert db.auth.admin.created_users == []
 
 
@@ -592,7 +641,14 @@ def test_ensure_team_meeting_mode_ignores_same_name_skill_for_another_user():
                 "require_review": False,
             }
         ],
-        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
+        admin=FakeAuthAdmin(
+            users=[
+                SimpleNamespace(
+                    id=selected_user_id,
+                    email="sorigamis-e2e@example.com",
+                )
+            ]
+        ),
     )
 
     _, user_id = ensure_team_meeting_mode(db, attendees=[])
@@ -630,7 +686,14 @@ def test_ensure_team_meeting_mode_scopes_mode_lookup_to_selected_user():
                 "skill_ids": ["existing-skill"],
             }
         ],
-        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
+        admin=FakeAuthAdmin(
+            users=[
+                SimpleNamespace(
+                    id=selected_user_id,
+                    email="sorigamis-e2e@example.com",
+                )
+            ]
+        ),
     )
 
     mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
@@ -764,6 +827,7 @@ def test_poll_job_completes_after_confirming_plan_and_checkpoints(monkeypatch):
         file_id="drive-file",
         server_url="http://validator.test",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=True,
         speakers=["SPEAKER_00=Alice"],
         out_path=None,
@@ -856,6 +920,7 @@ def test_poll_job_returns_failed_report_on_job_failure(monkeypatch):
         file_id="drive-file",
         server_url="http://validator.test",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=False,
         speakers=[],
         out_path=None,
@@ -890,6 +955,7 @@ def test_poll_job_redacts_secret_from_failed_job_error(monkeypatch):
         file_id="drive-file",
         server_url="http://validator.test",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=False,
         speakers=[],
         out_path=None,
@@ -925,6 +991,7 @@ def test_poll_job_does_not_sleep_after_final_timeout_attempt(monkeypatch):
         file_id="drive-file",
         server_url="http://validator.test",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=False,
         speakers=[],
         out_path=None,
@@ -971,6 +1038,7 @@ def test_poll_job_default_polling_budget_is_120_minutes(monkeypatch):
         file_id="drive-file",
         server_url="http://validator.test",
         attendees=[],
+        user_email="sorigamis-e2e@example.com",
         send_email=False,
         speakers=[],
         out_path=None,
