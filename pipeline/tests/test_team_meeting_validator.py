@@ -1,10 +1,14 @@
 import importlib
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+
+
+PIPELINE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_load_dotenv_sets_environment_and_returns_loaded_values(tmp_path, monkeypatch):
@@ -159,6 +163,10 @@ class FakeTableQuery:
         self.filters.append((key, value))
         return self
 
+    def is_(self, key, value):
+        self.filters.append((key, None if value == "null" else value))
+        return self
+
     def execute(self):
         rows = self.db.rows[self.table_name]
         if self.operation == "select":
@@ -183,24 +191,14 @@ class FakeTableQuery:
 
 
 class FakeSupabase:
-    def __init__(self):
+    def __init__(self, skills=None, modes=None, admin=None):
         self.rows = {
-            "sg_skills": [
-                {
-                    "id": str(uuid4()),
-                    "name": "Meeting Summary",
-                    "description": "stale",
-                    "ai_prompt": "stale",
-                    "integration_actions": [{"type": "webhook"}],
-                    "is_default": False,
-                    "require_review": True,
-                }
-            ],
-            "sg_modes": [],
+            "sg_skills": skills if skills is not None else [],
+            "sg_modes": modes if modes is not None else [],
         }
         self.inserts = []
         self.updates = []
-        self.auth = SimpleNamespace(admin=FakeAuthAdmin())
+        self.auth = SimpleNamespace(admin=admin or FakeAuthAdmin())
 
     def table(self, table_name):
         return FakeTableQuery(self, table_name)
@@ -222,7 +220,20 @@ class FakeAuthAdmin:
 def test_ensure_team_meeting_mode_seeds_email_skill_with_attendees():
     from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
 
-    db = FakeSupabase()
+    db = FakeSupabase(
+        skills=[
+            {
+                "id": str(uuid4()),
+                "user_id": None,
+                "name": "Meeting Summary",
+                "description": "stale",
+                "ai_prompt": "stale",
+                "integration_actions": [{"type": "webhook"}],
+                "is_default": True,
+                "require_review": True,
+            }
+        ]
+    )
     attendees = ["alice@example.com", "bob@example.com"]
 
     mode_id, user_id = ensure_team_meeting_mode(db, attendees)
@@ -297,3 +308,78 @@ def test_ensure_team_meeting_mode_uses_first_admin_user_from_nested_wrapper():
     assert mode_id
     assert user_id == admin_user_id
     assert db.auth.admin.created_users == []
+
+
+def test_ensure_team_meeting_mode_ignores_non_default_same_name_skill():
+    from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
+
+    user_owned_action_items_id = str(uuid4())
+    db = FakeSupabase(
+        skills=[
+            {
+                "id": user_owned_action_items_id,
+                "user_id": str(uuid4()),
+                "name": "Action Items",
+                "description": "user-owned",
+                "ai_prompt": "do not touch",
+                "integration_actions": [{"type": "slack"}],
+                "is_default": False,
+                "require_review": False,
+            }
+        ]
+    )
+
+    ensure_team_meeting_mode(db, attendees=[])
+
+    action_items = [
+        row for row in db.rows["sg_skills"] if row["name"] == "Action Items"
+    ]
+    assert len(action_items) == 2
+    user_owned = next(row for row in action_items if row["id"] == user_owned_action_items_id)
+    default_seeded = next(row for row in action_items if row["id"] != user_owned_action_items_id)
+    assert user_owned["is_default"] is False
+    assert user_owned["ai_prompt"] == "do not touch"
+    assert default_seeded["is_default"] is True
+    assert default_seeded["user_id"] is None
+
+
+def test_ensure_team_meeting_mode_scopes_mode_lookup_to_selected_user():
+    from tests.e2e.sg_validate_team_meeting import ensure_team_meeting_mode
+
+    selected_user_id = str(uuid4())
+    other_user_id = str(uuid4())
+    other_mode_id = str(uuid4())
+    db = FakeSupabase(
+        modes=[
+            {
+                "id": other_mode_id,
+                "name": "Team Meeting",
+                "user_id": other_user_id,
+                "skill_ids": ["existing-skill"],
+            }
+        ],
+        admin=FakeAuthAdmin(users=[SimpleNamespace(id=selected_user_id)]),
+    )
+
+    mode_id, user_id = ensure_team_meeting_mode(db, attendees=[])
+
+    assert user_id == selected_user_id
+    assert mode_id != other_mode_id
+    other_mode = next(row for row in db.rows["sg_modes"] if row["id"] == other_mode_id)
+    selected_mode = next(row for row in db.rows["sg_modes"] if row["id"] == mode_id)
+    assert other_mode["skill_ids"] == ["existing-skill"]
+    assert selected_mode["user_id"] == selected_user_id
+
+
+def test_pipeline_migration_adds_require_review_column():
+    migration = (
+        PIPELINE_ROOT
+        / "supabase"
+        / "migrations"
+        / "20260627000000_require_review.sql"
+    )
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8").lower()
+    assert "alter table sg_skills" in sql
+    assert "require_review" in sql

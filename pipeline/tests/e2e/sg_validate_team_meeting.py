@@ -189,13 +189,22 @@ def _email_skill(attendees: list[str]) -> dict:
 
 
 def _ensure_skill(db, skill: dict) -> str:
-    existing = db.table("sg_skills").select("id").eq("name", skill["name"]).execute().data
+    payload = {**skill, "user_id": None}
+    query = (
+        db.table("sg_skills")
+        .select("id")
+        .eq("name", skill["name"])
+        .eq("is_default", True)
+    )
+    if hasattr(query, "is_"):
+        query = query.is_("user_id", "null")
+    existing = query.execute().data
     if existing:
         skill_id = existing[0]["id"]
-        db.table("sg_skills").update(skill).eq("id", skill_id).execute()
+        db.table("sg_skills").update(payload).eq("id", skill_id).execute()
         return skill_id
 
-    created = db.table("sg_skills").insert(skill).execute().data
+    created = db.table("sg_skills").insert(payload).execute().data
     return created[0]["id"]
 
 
@@ -209,7 +218,14 @@ def ensure_team_meeting_mode(db, attendees: list[str]) -> tuple[str, str]:
         "user_id": user_id,
         "skill_ids": skill_ids,
     }
-    existing = db.table("sg_modes").select("id").eq("name", "Team Meeting").execute().data
+    existing = (
+        db.table("sg_modes")
+        .select("id")
+        .eq("name", "Team Meeting")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
     if existing:
         mode_id = existing[0]["id"]
         db.table("sg_modes").update(payload).eq("id", mode_id).execute()
