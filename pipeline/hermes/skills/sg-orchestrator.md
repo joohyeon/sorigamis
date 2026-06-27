@@ -165,6 +165,65 @@ For each integration action in each skill:
 5. If approved: call the appropriate tool (`sg-slack-post`, `sg-linear-create`, `sg-webhook-call`)
 6. Write result to `sg_action_logs`
 
+Email actions are handled explicitly:
+1. If the skill is named "Meeting Follow-up Email" or any integration action has
+   `{"type": "email"}`, build the email body from approved skill outputs and the
+   speaker-attributed transcript.
+2. The email must include the meeting summary, action items with owners, and decisions.
+3. Before sending, write an action confirmation checkpoint with a structured preview.
+   Required JSON shape:
+   ```json
+   {
+     "type": "action_confirmation",
+     "action_type": "email",
+     "destination": "meeting_attendees",
+     "preview": {
+       "to": ["<meeting attendee emails>"],
+       "subject": "Meeting Follow-up Email",
+       "body_markdown": "<summary, action items with owners, and decisions>"
+     }
+   }
+   ```
+   Use the Supabase helper-function guidance:
+   ```
+   .venv/bin/python -c "
+   from tools.sg_supabase_write import update_job_status
+   checkpoint = {
+       \"type\": \"action_confirmation\",
+       \"action_type\": \"email\",
+       \"destination\": \"meeting_attendees\",
+       \"preview\": {
+           \"to\": [\"<meeting attendee emails>\"],
+           \"subject\": \"Meeting Follow-up Email\",
+           \"body_markdown\": \"<summary, action items with owners, and decisions>\",
+       },
+   }
+   update_job_status('<job_id>', 'awaiting_checkpoint', extra={'checkpoint_json': checkpoint})
+   "
+   ```
+4. Send FCM push: "Confirm action before sending". **STOP and wait.** On resume, check
+   if the email action was approved or skipped in `checkpoint_json`.
+5. After approval, call the SMTP helper with `.venv/bin/python -c`, importing
+   `tools.sg_email_send.send_email`. Do not hand-roll SMTP calls:
+   ```
+   .venv/bin/python -c "
+   from tools.sg_email_send import send_email
+   result = send_email(
+       to=[\"<meeting attendee emails>\"],
+       subject=\"Meeting Follow-up Email\",
+       body_markdown=\"<approved body markdown>\",
+   )
+   print(result)
+   "
+   ```
+6. Write `sg_action_logs` via `write_action_log` with `action_type='email'`,
+   `destination='meeting_attendees'`, `payload_json` containing recipients, subject,
+   body preview, and send result, and `status='fired'` on success.
+7. If the SMTP helper raises, catch the exception and write an `sg_action_logs` row with
+   `action_type='email'`, `destination='meeting_attendees'`, `status='failed'`, and a
+   sanitized error in `payload_json`. Do not include secrets, SMTP credentials, tokens,
+   or raw tracebacks in the error.
+
 ### Stage 7: Complete
 1. Set job status → `complete`
 2. Send FCM push: "Your results are ready"

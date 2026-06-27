@@ -103,3 +103,15 @@ def test_orchestrator_prompt_contains_stage_55_skill_review():
     assert "awaiting_skill_review" in prompt
     assert "require_review" in prompt
     assert "Stage 5.5" in prompt
+
+
+def test_orchestrator_prompt_contains_email_action_instructions():
+    """Stage 6 must explain how Hermes confirms and fires email actions."""
+    from hermes.runner import _build_prompt
+
+    prompt = _build_prompt('{"job_id":"job-1"}')
+
+    assert "sg_email_send" in prompt
+    assert "action_type\": \"email\"" in prompt
+    assert "Meeting Follow-up Email" in prompt
+    assert "SMTP" in prompt
