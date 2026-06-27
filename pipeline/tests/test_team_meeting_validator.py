@@ -383,3 +383,209 @@ def test_pipeline_migration_adds_require_review_column():
     sql = migration.read_text(encoding="utf-8").lower()
     assert "alter table sg_skills" in sql
     assert "require_review" in sql
+
+
+def test_checkpoint_response_maps_speaker_labels_with_participant_fallback():
+    from tests.e2e.sg_validate_team_meeting import checkpoint_response
+
+    response = checkpoint_response(
+        {
+            "type": "speaker_assignment",
+            "speakers": [
+                {"id": "speaker-1", "label": "SPEAKER_00"},
+                {"id": "speaker-2", "label": "SPEAKER_01"},
+                {"id": "speaker-3", "label": "SPEAKER_02"},
+            ],
+        },
+        speakers={"SPEAKER_00": "Alice", "SPEAKER_02": "Carol"},
+        send_email=False,
+    )
+
+    assert response == {
+        "speakers": [
+            {"id": "speaker-1", "confirmed_name": "Alice"},
+            {"id": "speaker-2", "confirmed_name": "Participant SPEAKER_01"},
+            {"id": "speaker-3", "confirmed_name": "Carol"},
+        ]
+    }
+
+
+def test_checkpoint_response_only_approves_email_action_when_send_email_enabled():
+    from tests.e2e.sg_validate_team_meeting import checkpoint_response
+
+    email_checkpoint = {"type": "action_confirmation", "action": {"type": "email"}}
+    webhook_checkpoint = {"type": "action_confirmation", "action": {"type": "webhook"}}
+
+    assert checkpoint_response(email_checkpoint, speakers={}, send_email=True) == {
+        "approved": True
+    }
+    assert checkpoint_response(email_checkpoint, speakers={}, send_email=False) == {
+        "skipped": True
+    }
+    assert checkpoint_response(webhook_checkpoint, speakers={}, send_email=True) == {
+        "skipped": True
+    }
+
+
+def _skill_result(name, output="done"):
+    return {"skill_name": name, "output_markdown": output}
+
+
+def test_build_report_passes_when_expected_skills_exist_and_email_action_fired():
+    from tests.e2e.sg_validate_team_meeting import EXPECTED_SKILLS, build_report
+
+    results = {
+        "skill_results": [_skill_result(name) for name in EXPECTED_SKILLS],
+        "action_logs": [
+            {
+                "action_type": "email",
+                "status": "fired",
+                "destination": "meeting_attendees",
+            }
+        ],
+    }
+
+    report = build_report(
+        job_id="job-1",
+        file_id="drive-file",
+        mode_id="mode-1",
+        timeline=[{"status": "submitted"}],
+        results=results,
+        send_email=True,
+    )
+
+    assert report["passed"] is True
+    assert report["job_id"] == "job-1"
+    assert report["drive_file_id"] == "drive-file"
+    assert report["mode_id"] == "mode-1"
+    assert report["timeline"] == [{"status": "submitted"}]
+    assert report["skill_results"] == results["skill_results"]
+    assert report["action_logs"] == results["action_logs"]
+    assert report["email_action_status"] == "fired"
+
+
+def test_poll_job_completes_after_confirming_plan_and_checkpoints(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import (
+        EXPECTED_SKILLS,
+        ValidationConfig,
+        poll_job,
+    )
+
+    config = ValidationConfig(
+        file_id="drive-file",
+        server_url="http://validator.test",
+        attendees=[],
+        send_email=True,
+        speakers=["SPEAKER_00=Alice"],
+        out_path=None,
+    )
+    responses = [
+        {
+            "job_id": "job-1",
+            "status": "awaiting_plan_confirmation",
+            "plan": {"approved_steps": ["speaker_assignment", "Meeting Summary"]},
+        },
+        {
+            "job_id": "job-1",
+            "status": "awaiting_checkpoint",
+            "checkpoint": {
+                "type": "speaker_assignment",
+                "speakers": [{"id": "s1", "label": "SPEAKER_00"}],
+            },
+        },
+        {
+            "job_id": "job-1",
+            "status": "awaiting_skill_review",
+            "checkpoint": {"type": "skill_review"},
+        },
+        {"job_id": "job-1", "status": "complete"},
+    ]
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            calls.append(("raise", self.payload))
+
+        def json(self):
+            return self.payload
+
+    def fake_get(url, timeout):
+        calls.append(("get", url, timeout))
+        if url.endswith("/results"):
+            return FakeResponse(
+                {
+                    "skill_results": [_skill_result(name) for name in EXPECTED_SKILLS],
+                    "action_logs": [{"action_type": "email", "status": "fired"}],
+                }
+            )
+        return FakeResponse(responses.pop(0))
+
+    def fake_post(url, json, timeout):
+        calls.append(("post", url, json, timeout))
+        return FakeResponse({"ok": True})
+
+    monkeypatch.setattr("tests.e2e.sg_validate_team_meeting.httpx.get", fake_get)
+    monkeypatch.setattr("tests.e2e.sg_validate_team_meeting.httpx.post", fake_post)
+    monkeypatch.setattr("tests.e2e.sg_validate_team_meeting.time.sleep", lambda _: None)
+
+    report = poll_job(config, job_id="job-1", mode_id="mode-1")
+
+    assert report["passed"] is True
+    assert [entry["status"] for entry in report["timeline"]] == [
+        "awaiting_plan_confirmation",
+        "awaiting_checkpoint",
+        "awaiting_skill_review",
+        "complete",
+    ]
+    assert (
+        "post",
+        "http://validator.test/jobs/job-1/confirm",
+        {"approved_steps": ["speaker_assignment", "Meeting Summary"], "per_step_overrides": {}},
+        30,
+    ) in calls
+    assert (
+        "post",
+        "http://validator.test/jobs/job-1/checkpoint",
+        {"data": {"speakers": [{"id": "s1", "confirmed_name": "Alice"}]}},
+        30,
+    ) in calls
+    assert (
+        "post",
+        "http://validator.test/jobs/job-1/checkpoint",
+        {"data": {"approved": True}},
+        30,
+    ) in calls
+
+
+def test_poll_job_returns_failed_report_on_job_failure(monkeypatch):
+    from tests.e2e.sg_validate_team_meeting import ValidationConfig, poll_job
+
+    config = ValidationConfig(
+        file_id="drive-file",
+        server_url="http://validator.test",
+        attendees=[],
+        send_email=False,
+        speakers=[],
+        out_path=None,
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"job_id": "job-1", "status": "failed", "error": "boom"}
+
+    monkeypatch.setattr(
+        "tests.e2e.sg_validate_team_meeting.httpx.get",
+        lambda url, timeout: FakeResponse(),
+    )
+
+    report = poll_job(config, job_id="job-1", mode_id="mode-1")
+
+    assert report["passed"] is False
+    assert report["error"] == "boom"
+    assert report["timeline"] == [{"status": "failed", "checkpoint": None}]
