@@ -308,7 +308,7 @@ def ensure_team_meeting_mode(
     return created[0]["id"], user_id
 
 
-def _speaker_mapping(speakers: dict[str, str] | list[str]) -> dict[str, str]:
+def _speaker_mapping(speakers: dict[str, str] | list[tuple[str, str]] | list[str]) -> dict[str, str]:
     if isinstance(speakers, dict):
         return speakers
 
@@ -330,7 +330,7 @@ def _speaker_mapping(speakers: dict[str, str] | list[str]) -> dict[str, str]:
 
 def checkpoint_response(
     checkpoint: dict,
-    speakers: dict[str, str] | list[str],
+    speakers: dict[str, str] | list[tuple[str, str]] | list[str],
     send_email: bool,
 ) -> dict:
     checkpoint_type = checkpoint.get("type")
